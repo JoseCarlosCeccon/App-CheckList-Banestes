@@ -204,6 +204,24 @@ h3 {
   color: var(--text);
 }
 
+.max-focus-pill {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 12px;
+  border-radius: 99px;
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  font-size: 0.76rem;
+  color: #fca5a5;
+}
+
+.max-focus-pill strong {
+  color: #fecaca;
+}
+
 .progress-ring {
   position: relative;
 }
@@ -834,9 +852,15 @@ h3 {
 .icon-button {
   display: grid;
   place-items: center;
+  transition: color 0.15s ease, border-color 0.15s ease;
 }
 
 .icon-button:hover {
+  color: var(--green-2);
+  border-color: var(--green);
+}
+
+.icon-button.danger-hover:hover {
   color: var(--red);
   border-color: var(--red);
 }

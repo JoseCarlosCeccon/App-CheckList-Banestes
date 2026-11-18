@@ -3,6 +3,7 @@ import { checklistData, examInfo, incidenceStats, studyPhases } from '../checkli
 import {
   countDoneTopics,
   countTopics,
+  exportProgressJson,
   getBlockTopicIds,
   getCompletionPercent,
   getDaysUntil,
@@ -11,10 +12,16 @@ import {
   isBlockComplete,
   loadProgress,
   normalizeText,
+  parseImportedProgress,
   saveProgress,
 } from '../utils/checklist.js';
 
 const focusOptions = ['Todos', 'Máximo', 'Alto', 'Médio', 'Baixo'];
+const statusOptions = [
+  { value: 'all', label: 'Todos os status' },
+  { value: 'pending', label: 'Apenas pendentes' },
+  { value: 'done', label: 'Apenas concluídos' },
+];
 const subjectsById = Object.fromEntries(checklistData.map((subject) => [subject.id, subject]));
 
 function Icon({ name, size = 17 }) {
@@ -63,6 +70,20 @@ function Icon({ name, size = 17 }) {
           <path d="M4 7v5h5" />
           <path d="M20 12a8 8 0 0 0-14.9-4" />
           <path d="M20 17a8 8 0 0 1-14.9-4" />
+        </svg>
+      );
+    case 'download':
+      return (
+        <svg {...p}>
+          <path d="M12 3v12m0 0-4-4m4 4 4-4" />
+          <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+        </svg>
+      );
+    case 'upload':
+      return (
+        <svg {...p}>
+          <path d="M12 15V3m0 0-4 4m4-4 4 4" />
+          <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
         </svg>
       );
     case 'calendar':
@@ -189,7 +210,7 @@ function BlockCheckButton({ block, isDone, onToggleBlock }) {
   );
 }
 
-function DesktopRow({ block, progress, onToggleBlock, onToggleTopic }) {
+function DesktopRow({ block, progress, onToggleBlock, onToggleTopic, subjectLabel }) {
   const isDone = isBlockComplete(block, progress);
   const doneTopics = getBlockTopicIds(block).filter((topicId) => progress[topicId]).length;
 
@@ -203,7 +224,7 @@ function DesktopRow({ block, progress, onToggleBlock, onToggleTopic }) {
       </td>
       <td className="block-title-cell">
         <div className="block-title">
-          <strong>Bloco {block.order}</strong>
+          <strong>{subjectLabel ? `${subjectLabel} · Bloco ${block.order}` : `Bloco ${block.order}`}</strong>
           <span>{block.title}</span>
           <small>
             {doneTopics}/{block.topics.length} assuntos
@@ -222,7 +243,7 @@ function DesktopRow({ block, progress, onToggleBlock, onToggleTopic }) {
   );
 }
 
-function MobileCard({ block, progress, onToggleBlock, onToggleTopic }) {
+function MobileCard({ block, progress, onToggleBlock, onToggleTopic, subjectLabel }) {
   const isDone = isBlockComplete(block, progress);
   const doneTopics = getBlockTopicIds(block).filter((topicId) => progress[topicId]).length;
 
@@ -230,7 +251,9 @@ function MobileCard({ block, progress, onToggleBlock, onToggleTopic }) {
     <article className={`mobile-block-card ${isDone ? 'done-row' : ''}`}>
       <div className="mobile-block-head">
         <div>
-          <p className="mobile-block-kicker">Bloco {block.order}</p>
+          <p className="mobile-block-kicker">
+            {subjectLabel ? `${subjectLabel} · Bloco ${block.order}` : `Bloco ${block.order}`}
+          </p>
           <h3>{block.title}</h3>
           <p className="mobile-block-meta">
             {doneTopics}/{block.topics.length} assuntos
@@ -253,8 +276,11 @@ function ChecklistBoard() {
   const [progress, setProgress] = useState(loadProgress);
   const [query, setQuery] = useState('');
   const [focusFilter, setFocusFilter] = useState('Todos');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [searchAllSubjects, setSearchAllSubjects] = useState(false);
   const isMobileLayout = useIsMobileLayout();
   const checklistRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   const selectedSubject = subjectsById[activeSubject] || checklistData[0];
   const allBlocks = useMemo(() => checklistData.flatMap((subject) => subject.blocks), []);
@@ -277,6 +303,9 @@ function ChecklistBoard() {
     const totalTopics = countTopics(allBlocks);
     const doneBlocks = allBlocks.filter((block) => isBlockComplete(block, progress)).length;
     const subjectDoneModules = selectedSubject.blocks.filter((block) => isBlockComplete(block, progress)).length;
+    const maxFocusBlocks = allBlocks.filter((block) => block.focus === 'Máximo');
+    const maxFocusDoneTopics = countDoneTopics(maxFocusBlocks, progress);
+    const maxFocusTotalTopics = countTopics(maxFocusBlocks);
 
     return {
       totalDoneTopics,
@@ -285,6 +314,9 @@ function ChecklistBoard() {
       doneBlocks,
       totalBlocks: allBlocks.length,
       subjectDoneModules,
+      maxFocusDoneTopics,
+      maxFocusTotalTopics,
+      maxFocusPercent: getCompletionPercent(maxFocusDoneTopics, maxFocusTotalTopics),
     };
   }, [allBlocks, progress, selectedSubject]);
 
@@ -292,15 +324,26 @@ function ChecklistBoard() {
 
   const filteredBlocks = useMemo(() => {
     const normalizedQuery = normalizeText(query);
+    const sourceSubjects = searchAllSubjects ? checklistData : [selectedSubject];
 
-    return selectedSubject.blocks.filter((block) => {
-      const matchesFocus = focusFilter === 'Todos' || block.focus === focusFilter;
-      const searchable = normalizeText(
-        [block.title, block.focus, block.probability, block.reason, ...block.topics].join(' '),
-      );
-      return matchesFocus && (!normalizedQuery || searchable.includes(normalizedQuery));
-    });
-  }, [focusFilter, query, selectedSubject]);
+    return sourceSubjects.flatMap((subject) =>
+      subject.blocks
+        .filter((block) => {
+          const matchesFocus = focusFilter === 'Todos' || block.focus === focusFilter;
+          const done = isBlockComplete(block, progress);
+          const matchesStatus =
+            statusFilter === 'all' || (statusFilter === 'done' ? done : !done);
+          const searchable = normalizeText(
+            [subject.subject, block.title, block.focus, block.probability, block.reason, ...block.topics].join(' '),
+          );
+          return matchesFocus && matchesStatus && (!normalizedQuery || searchable.includes(normalizedQuery));
+        })
+        .map((block) => ({
+          block,
+          subjectLabel: searchAllSubjects ? subject.subject : null,
+        })),
+    );
+  }, [focusFilter, statusFilter, query, searchAllSubjects, selectedSubject, progress]);
 
   useEffect(() => {
     saveProgress(progress);
@@ -308,8 +351,10 @@ function ChecklistBoard() {
 
   function openSubject(subjectId) {
     setActiveSubject(subjectId);
+    setSearchAllSubjects(false);
     setQuery('');
     setFocusFilter('Todos');
+    setStatusFilter('all');
     requestAnimationFrame(() => checklistRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   }
 
@@ -334,6 +379,37 @@ function ChecklistBoard() {
     if (window.confirm('Deseja limpar todas as marcações salvas?')) {
       setProgress({});
     }
+  }
+
+  function handleExportProgress() {
+    const json = exportProgressJson(progress);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `progresso-banestes-2027-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function handleImportFile(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const imported = parseImportedProgress(String(reader.result || ''));
+        setProgress(imported);
+      } catch {
+        window.alert('Não foi possível importar este arquivo JSON.');
+      } finally {
+        event.target.value = '';
+      }
+    };
+    reader.readAsText(file);
   }
 
   const maxIncidence = Math.max(...incidenceStats.items.map((item) => item.value));
@@ -382,6 +458,12 @@ function ChecklistBoard() {
             <span>
               <strong>{stats.doneBlocks}</strong>/{stats.totalBlocks} blocos
             </span>
+          </div>
+          <div className="max-focus-pill" title="Progresso nos blocos de Foco Máximo (maior incidência na FCC)">
+            <span>Foco Máximo:</span>
+            <strong>
+              {stats.maxFocusDoneTopics}/{stats.maxFocusTotalTopics} ({stats.maxFocusPercent}%)
+            </strong>
           </div>
           {nextTopic ? (
             <button type="button" className="next-step" onClick={() => openSubject(nextTopic.subject.id)}>
@@ -570,7 +652,7 @@ function ChecklistBoard() {
                 {stats.subjectDoneModules}/{selectedSubject.blocks.length} blocos
               </span>
               <span>
-                {selectedProgress.done}/{selectedProgress.total} assuntos
+                {selectedProgress.done}/{selectedProgress.total} assuntos ({selectedProgress.percent}%)
               </span>
             </div>
             <div className="progress-track">
@@ -583,16 +665,28 @@ function ChecklistBoard() {
           <div className="subject-tabs" aria-label="Matérias">
             {checklistData.map((subject) => (
               <button
-                className={subject.id === activeSubject ? 'active' : ''}
+                className={!searchAllSubjects && subject.id === activeSubject ? 'active' : ''}
                 key={subject.id}
                 type="button"
-                onClick={() => setActiveSubject(subject.id)}
-                aria-pressed={subject.id === activeSubject}
+                onClick={() => {
+                  setSearchAllSubjects(false);
+                  setActiveSubject(subject.id);
+                }}
+                aria-pressed={!searchAllSubjects && subject.id === activeSubject}
                 title={subject.subject}
               >
                 {subject.order}. {subject.subject}
               </button>
             ))}
+            <button
+              className={searchAllSubjects ? 'active' : ''}
+              type="button"
+              onClick={() => setSearchAllSubjects((prev) => !prev)}
+              aria-pressed={searchAllSubjects}
+              title="Exibir blocos de todas as matérias de uma vez"
+            >
+              Todas as matérias
+            </button>
           </div>
 
           <div className="tool-controls">
@@ -601,7 +695,7 @@ function ChecklistBoard() {
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Buscar assunto"
+                placeholder={searchAllSubjects ? 'Buscar em todas as matérias...' : 'Buscar assunto na matéria...'}
                 aria-label="Buscar assunto"
               />
             </label>
@@ -611,11 +705,49 @@ function ChecklistBoard() {
               aria-label="Filtrar por foco"
             >
               {focusOptions.map((option) => (
-                <option key={option}>{option}</option>
+                <option key={option} value={option}>
+                  Foco: {option}
+                </option>
+              ))}
+            </select>
+            <select
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+              aria-label="Filtrar por status"
+            >
+              {statusOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
               ))}
             </select>
             <button
               className="icon-button"
+              type="button"
+              onClick={handleExportProgress}
+              title="Exportar progresso em JSON"
+              aria-label="Exportar progresso em JSON"
+            >
+              <Icon name="download" size={17} />
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              title="Importar progresso de arquivo JSON"
+              aria-label="Importar progresso de arquivo JSON"
+            >
+              <Icon name="upload" size={17} />
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/json"
+              className="sr-only"
+              onChange={handleImportFile}
+            />
+            <button
+              className="icon-button danger-hover"
               type="button"
               onClick={resetProgress}
               title="Limpar marcações"
@@ -628,10 +760,11 @@ function ChecklistBoard() {
 
         {isMobileLayout ? (
           <section className="mobile-cards-view">
-            {filteredBlocks.map((block) => (
+            {filteredBlocks.map(({ block, subjectLabel }) => (
               <MobileCard
                 key={block.id}
                 block={block}
+                subjectLabel={subjectLabel}
                 progress={progress}
                 onToggleBlock={toggleBlock}
                 onToggleTopic={toggleTopic}
@@ -654,10 +787,11 @@ function ChecklistBoard() {
                 </tr>
               </thead>
               <tbody>
-                {filteredBlocks.map((block) => (
+                {filteredBlocks.map(({ block, subjectLabel }) => (
                   <DesktopRow
                     key={block.id}
                     block={block}
+                    subjectLabel={subjectLabel}
                     progress={progress}
                     onToggleBlock={toggleBlock}
                     onToggleTopic={toggleTopic}

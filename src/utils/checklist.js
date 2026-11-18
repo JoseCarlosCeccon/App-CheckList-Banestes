@@ -111,3 +111,24 @@ export function getDaysUntil(isoDate) {
   const diff = new Date(isoDate).getTime() - Date.now();
   return Math.max(0, Math.ceil(diff / 86400000));
 }
+
+export function exportProgressJson(progress) {
+  const payload = {
+    app: 'checklist-banestes-2027',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    progress,
+  };
+  return JSON.stringify(payload, null, 2);
+}
+
+export function parseImportedProgress(rawText) {
+  const parsed = JSON.parse(rawText);
+  if (parsed && typeof parsed === 'object') {
+    if (parsed.progress && typeof parsed.progress === 'object') {
+      return parsed.progress;
+    }
+    return parsed;
+  }
+  throw new Error('Formato de arquivo inválido.');
+}
