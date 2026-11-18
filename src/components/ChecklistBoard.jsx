@@ -201,12 +201,14 @@ function DesktopRow({ block, progress, onToggleBlock, onToggleTopic }) {
       <td>
         <span className="order-pill">{block.order}</span>
       </td>
-      <td className="block-title">
-        <strong>Bloco {block.order}</strong>
-        <span>{block.title}</span>
-        <small>
-          {doneTopics}/{block.topics.length} assuntos
-        </small>
+      <td className="block-title-cell">
+        <div className="block-title">
+          <strong>Bloco {block.order}</strong>
+          <span>{block.title}</span>
+          <small>
+            {doneTopics}/{block.topics.length} assuntos
+          </small>
+        </div>
       </td>
       <td>
         <TopicChecklist block={block} progress={progress} onToggleTopic={onToggleTopic} />
