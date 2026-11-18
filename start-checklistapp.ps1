@@ -10,8 +10,8 @@ try {
 }
 
 if (-not $IsRunning) {
-  Start-Process -FilePath "npm.cmd" `
-    -ArgumentList @("run", "dev", "--", "--host", "127.0.0.1", "--port", "5173") `
+  Start-Process -FilePath "npx.cmd" `
+    -ArgumentList @("vite", "--host", "127.0.0.1", "--port", "5173") `
     -WorkingDirectory $ProjectDir `
     -WindowStyle Minimized
 
