@@ -13,7 +13,9 @@ npm install
 npm run dev
 ```
 
-Acesse em `http://127.0.0.1:5173/` (ou execute o script `./start-checklistapp.ps1` no Windows).
+Acesse em `http://127.0.0.1:5173/`. No Windows, dê dois cliques em
+`Iniciar Checklist Banestes.cmd` para iniciar o servidor e abrir o app no navegador.
+O script `./start-checklistapp.ps1` continua disponível para execução pelo terminal.
 
 Para gerar o build de produção:
 
